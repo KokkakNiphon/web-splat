@@ -68,7 +68,7 @@ pub struct WGPUContext {
 impl WGPUContext {
     pub async fn new_instance() -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: Backends::PRIMARY,
+            backends: wgpu::Backends::all(),
             ..Default::default()
         });
 
@@ -216,7 +216,7 @@ impl WindowContext {
         log::info!("loaded point cloud with {:} points", pc.num_points());
 
         let renderer =
-            GaussianRenderer::new(&device, &queue, render_format, pc.sh_deg(), pc.compressed())
+            GaussianRenderer::new(&device, &queue, render_format, pc.sh_deg(), pc.compressed(), wgpu_context.adapter.get_info().backend)
                 .await;
 
         let aabb = pc.bbox();

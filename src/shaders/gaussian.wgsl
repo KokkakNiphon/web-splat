@@ -22,19 +22,24 @@ struct Splat {
     color_0: u32,color_1: u32,
 };
 
+//StartInjection
 @group(0) @binding(2)
 var<storage, read> points_2d : array<Splat>;
 @group(1) @binding(4)
 var<storage, read> indices : array<u32>;
+//EndInjection
 
 @vertex
 fn vs_main(
     @builtin(vertex_index) in_vertex_index: u32,
-    @builtin(instance_index) in_instance_index: u32
+    @builtin(instance_index) in_instance_index: u32,
+    //VertexInputInjection
 ) -> VertexOutput {
     var out: VertexOutput;
 
+    //VertexRetrievalInjection
     let vertex = points_2d[indices[in_instance_index] + 0u];
+
 
     // scaled eigenvectors in screen space 
     let v1 = unpack2x16float(vertex.v_0);

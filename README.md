@@ -80,7 +80,7 @@ cargo run --release --features npz --bin viewer point_cloud.npz cameras.json
 Serve the `public` directory:
 
 ```bash
-python -m http.server 8080 --directory public
+python -m http.server 8080 --directory public --bind 0.0.0.0
 # OR
 npx serve public
 ```

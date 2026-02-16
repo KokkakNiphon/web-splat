@@ -184,6 +184,7 @@ async fn main() {
         wgpu::TextureFormat::Rgba8Unorm,
         pc.sh_deg(),
         pc.compressed(),
+        wgpu_context.adapter.get_info().backend,
     )
     .await;
 

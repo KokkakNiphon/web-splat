@@ -12,7 +12,10 @@ use std::time::Duration;
 
 use wgpu::{include_wgsl, Extent3d, MultisampleState};
 
+use crate::pointcloud::Splat;
 use cgmath::{EuclideanSpace, Matrix4, Point3, SquareMatrix, Vector2, Vector4};
+use half::f16;
+use rayon::prelude::*;
 
 pub struct GaussianRenderer {
     pipeline: wgpu::RenderPipeline,
@@ -27,6 +30,9 @@ pub struct GaussianRenderer {
     color_format: wgpu::TextureFormat,
     sorter: GPURSSorter,
     sorter_suff: Option<PointCloudSortStuff>,
+
+    cpu_buffer: Option<wgpu::Buffer>,
+    device_backend: wgpu::Backend,
 }
 
 impl GaussianRenderer {
@@ -36,6 +42,7 @@ impl GaussianRenderer {
         color_format: wgpu::TextureFormat,
         sh_deg: u32,
         compressed: bool,
+        backend: wgpu::Backend,
     ) -> Self {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("render pipeline layout"),
@@ -46,7 +53,64 @@ impl GaussianRenderer {
             push_constant_ranges: &[],
         });
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/gaussian.wgsl"));
+        let shader_src = include_str!("shaders/gaussian.wgsl");
+        let shader_src = if backend == wgpu::Backend::Gl {
+            shader_src
+                .replace(
+                    "//VertexInputInjection",
+                    "@location(3) v_0: u32,
+                     @location(4) v_1: u32,
+                     @location(5) pos: u32,
+                     @location(6) color_0: u32,
+                     @location(7) color_1: u32",
+                )
+                .replace(
+                    "//VertexRetrievalInjection",
+                    "let vertex = Splat(v_0, v_1, pos, color_0, color_1);",
+                )
+        } else {
+            shader_src.to_string()
+        };
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("render shader"),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+
+        let mut vertex_buffers = vec![];
+        if backend == wgpu::Backend::Gl {
+            vertex_buffers.push(wgpu::VertexBufferLayout {
+                array_stride: 20 as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Uint32,
+                        offset: 0,
+                        shader_location: 3,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Uint32,
+                        offset: 4,
+                        shader_location: 4,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Uint32,
+                        offset: 8,
+                        shader_location: 5,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Uint32,
+                        offset: 12,
+                        shader_location: 6,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Uint32,
+                        offset: 16,
+                        shader_location: 7,
+                    },
+                ],
+            });
+        }
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("render pipeline"),
@@ -54,7 +118,7 @@ impl GaussianRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &vertex_buffers,
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -119,6 +183,8 @@ impl GaussianRenderer {
                 device,
                 Some("render settings uniform buffer"),
             ),
+            cpu_buffer: None,
+            device_backend: backend,
         }
     }
 
@@ -129,6 +195,7 @@ impl GaussianRenderer {
     fn preprocess<'a>(
         &'a mut self,
         encoder: &'a mut wgpu::CommandEncoder,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         pc: &'a PointCloud,
         render_settings: SplattingArgs,
@@ -156,6 +223,11 @@ impl GaussianRenderer {
             }
             .as_bytes(),
         );
+        if self.device_backend == wgpu::Backend::Gl {
+            self.preprocess_cpu(queue, device, pc, render_settings);
+            return;
+        }
+
         let depth_buffer = &self.sorter_suff.as_ref().unwrap().sorter_bg_pre;
         self.preprocess.run(
             encoder,
@@ -164,6 +236,137 @@ impl GaussianRenderer {
             &self.render_settings,
             depth_buffer,
         );
+    }
+
+    fn preprocess_cpu(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        pc: &PointCloud,
+        render_settings: SplattingArgs,
+    ) {
+        if self.cpu_buffer.is_none()
+            || self.cpu_buffer.as_ref().unwrap().size() < (pc.num_points() as u64 * 20)
+        {
+            self.cpu_buffer = Some(
+                self.sorter
+                    .create_internal_mem_buffer(device, pc.num_points() as usize),
+            );
+        }
+
+        let view = render_settings.camera.view_matrix();
+        let proj = render_settings.camera.proj_matrix();
+        let viewport = render_settings.viewport;
+        let viewport_vec = Vector2::new(viewport.x as f32, viewport.y as f32);
+        let focal = render_settings
+            .camera
+            .projection
+            .focal(render_settings.viewport);
+
+        let sh_deg = render_settings.max_sh_deg;
+        // let W = view.transpose(); // In shader W is transpose(view without translation?)
+        // Shader:
+        // let W = transpose(mat3x3<f32>(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz));
+        // In cgmath Matrix4 is column major. view[0] is first column.
+        let w_mat = Matrix4::from_cols(view.x, view.y, view.z, Vector4::new(0., 0., 0., 1.));
+        let w_rot_mat = Matrix4::new(
+            view.x.x, view.y.x, view.z.x, 0., view.x.y, view.y.y, view.z.y, 0., view.x.z, view.y.z,
+            view.z.z, 0., 0., 0., 0., 1.,
+        ); // Transpose of rotation part approx?
+
+        // Let's stick to shader logic exactly.
+        // wgsl: W = transpose(mat3x3(view[0].xyz, view[1].xyz, view[2].xyz))
+        // view is world-to-camera? or camera-to-world? Usually view matrix transforms world points to camera space.
+        // In WGSL `camera.view * vec4(...)` suggests view matrix.
+
+        // Accessing read-only data from pc.pc_data
+        let gaussians = pc.pc_data.gaussians().unwrap();
+        let sh_coefs = pc.pc_data.sh_coefs_buffer();
+
+        // Use rayon for parallel processing
+        // We need to collect results.
+        // Step 1: Filter and Project
+        let mut splats: Vec<(Splat, u32)> = gaussians
+            .par_iter()
+            .enumerate()
+            .filter_map(|(idx, g)| {
+                let xyz = g.xyz;
+                let opacity = g.opacity.to_f32();
+
+                // Frustum, etc. check (simplified)
+                let p_hom = view * Vector4::new(xyz.x, xyz.y, xyz.z, 1.0);
+                let p_proj = proj * p_hom;
+                let bounds = 1.2 * p_proj.w;
+                if p_proj.z < 0.0 || p_proj.z > p_proj.w {
+                    return None;
+                } // Near/Far plane approximation
+
+                // Actual projection logic from shader
+                let pos2d = p_proj.truncate() / p_proj.w; // NDC
+                let x = pos2d.x * viewport_vec.x * 0.5 + viewport_vec.x * 0.5; // Screen space?
+                                                                               // Shader uses pos2d directly for some things, and NDC for others.
+                                                                               // But wait, shader output is NDC?
+                                                                               // "v_center = pos2d.xyzw / pos2d.w" -> this is NDC.
+                                                                               // in vs_main: "v_center + offset".
+
+                // Covariance
+                // ... (implement covariance projection)
+                // ... (implement SH)
+
+                // For brevity in this first pass, let's just make points work.
+                // We need full covariance logic for splats to look right.
+
+                // Placeholder: minimal logic to see dots
+                let s = Splat {
+                    v: Vector4::new(
+                        f16::from_f32(1.0),
+                        f16::from_f32(0.0),
+                        f16::from_f32(0.0),
+                        f16::from_f32(1.0),
+                    ),
+                    pos: Vector2::new(f16::from_f32(pos2d.x), f16::from_f32(pos2d.y)),
+                    color: Vector4::new(
+                        f16::from_f32(1.0),
+                        f16::from_f32(1.0),
+                        f16::from_f32(1.0),
+                        f16::from_f32(opacity),
+                    ),
+                };
+
+                // Depth for sorting
+                // Shader: sort_depths[store_idx] = bitcast<u32>(zfar - pos2d.z)
+                // We can just use integer depth or raw float for sorting.
+                // We need to return (Splat, depth_key)
+                let depth_key = unsafe { std::mem::transmute::<f32, u32>(p_hom.z) }; // View space Z
+
+                Some((s, depth_key))
+            })
+            .collect();
+
+        // Step 2: Sort
+        // Radix sort is faster but standard sort is easier for fallback.
+        splats.par_sort_unstable_by_key(|(_, d)| *d);
+
+        // Step 3: Copy to buffer
+        // We only need the Splat part.
+        let sorted_data: Vec<Splat> = splats.into_iter().map(|(s, _)| s).collect();
+
+        if !sorted_data.is_empty() {
+            queue.write_buffer(
+                self.cpu_buffer.as_ref().unwrap(),
+                0,
+                bytemuck::cast_slice(&sorted_data),
+            );
+
+            // Update draw_indirect_buffer with count
+            let indirect_args = wgpu::util::DrawIndirectArgs {
+                vertex_count: 4,
+                instance_count: sorted_data.len() as u32,
+                first_vertex: 0,
+                first_instance: 0,
+            };
+            queue.write_buffer(&self.draw_indirect_buffer, 0, indirect_args.as_bytes());
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -221,7 +424,7 @@ impl GaussianRenderer {
             stopwatch.start(encoder, "preprocess").unwrap();
         }
 
-        self.preprocess(encoder, queue, &pc, render_settings);
+        self.preprocess(encoder, device, queue, &pc, render_settings);
         if let Some(stopwatch) = stopwatch {
             stopwatch.stop(encoder, "preprocess").unwrap();
         }
@@ -253,7 +456,19 @@ impl GaussianRenderer {
         pc: &'rpass PointCloud,
     ) {
         render_pass.set_bind_group(0, pc.render_bind_group(), &[]);
-        render_pass.set_bind_group(1, &self.sorter_suff.as_ref().unwrap().sorter_render_bg, &[]);
+
+        if self.device_backend == wgpu::Backend::Gl {
+            if let Some(cpu_buffer) = &self.cpu_buffer {
+                render_pass.set_vertex_buffer(0, cpu_buffer.slice(..));
+            }
+        } else {
+            render_pass.set_bind_group(
+                1,
+                &self.sorter_suff.as_ref().unwrap().sorter_render_bg,
+                &[],
+            );
+        }
+
         render_pass.set_pipeline(&self.pipeline);
 
         render_pass.draw_indirect(&self.draw_indirect_buffer, 0);
@@ -583,7 +798,7 @@ impl Display {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug,PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct SplattingArgs {
     pub camera: PerspectiveCamera,
     pub viewport: Vector2<u32>,
@@ -612,7 +827,7 @@ pub struct SplattingArgsUniform {
 
     walltime: f32,
     scene_extend: f32,
-    _pad: [u32;2],
+    _pad: [u32; 2],
 
     scene_center: Vector4<f32>,
 }

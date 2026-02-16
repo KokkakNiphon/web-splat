@@ -168,10 +168,10 @@
             }
         }
 
-        if (!await checkWebGPU()) {
-            document.getElementById("no-webgpu").style.display = "flex";
-            throw Error("WebGPU not supported.");
-        }
+        // if (!await checkWebGPU()) {
+        //     document.getElementById("no-webgpu").style.display = "flex";
+        //     throw Error("WebGPU not supported.");
+        // }
 
         import init, { run_wasm } from "./web_splats.js";
         let init_promise = init();

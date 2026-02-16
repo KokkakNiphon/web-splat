@@ -153,8 +153,15 @@ async fn main() {
 
     let render_format = wgpu::TextureFormat::Rgba16Float;
 
-    let mut renderer =
-        GaussianRenderer::new(&device, &queue, render_format, pc.sh_deg(), pc.compressed()).await;
+    let mut renderer = GaussianRenderer::new(
+        &device,
+        &queue,
+        render_format,
+        pc.sh_deg(),
+        pc.compressed(),
+        wgpu_context.adapter.get_info().backend,
+    )
+    .await;
 
     render_views(
         device,
@@ -213,7 +220,7 @@ pub async fn download_texture(
 
     encoder.copy_texture_to_buffer(
         texture.as_image_copy(),
-        wgpu::TexelCopyBufferInfoBase{
+        wgpu::TexelCopyBufferInfoBase {
             buffer: &staging_buffer,
             layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
@@ -254,10 +261,12 @@ async fn download_buffer<'a>(
 
     let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
     slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-    device.poll(match wait_idx {
-        Some(idx) => wgpu::MaintainBase::WaitForSubmissionIndex(idx),
-        None => wgpu::MaintainBase::Wait,
-    }).unwrap();
+    device
+        .poll(match wait_idx {
+            Some(idx) => wgpu::MaintainBase::WaitForSubmissionIndex(idx),
+            None => wgpu::MaintainBase::Wait,
+        })
+        .unwrap();
     rx.receive().await.unwrap().unwrap();
 
     let view = slice.get_mapped_range();

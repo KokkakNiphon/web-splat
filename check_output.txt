@@ -1,0 +1,65 @@
+    Checking bytemuck v1.23.2
+    Checking serde v1.0.219
+    Checking thiserror v1.0.69
+    Checking thiserror v2.0.12
+    Checking windows-core v0.58.0
+    Checking strum v0.26.3
+   Compiling getrandom v0.3.3
+   Compiling zerocopy v0.8.24
+    Checking anstyle v1.0.10
+    Checking renderdoc-sys v1.1.0
+   Compiling unicase v2.8.1
+    Checking range-alloc v0.1.4
+    Checking aligned-vec v0.5.0
+    Checking utf8parse v0.2.2
+error: The "wasm_js" backend requires the `wasm_js` feature for `getrandom`. For more information see: https://docs.rs/getrandom/0.3.3/#webassembly-support
+  --> C:\Users\kokka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.3.3\src\backends.rs:34:17
+   |
+34 | /                 compile_error!(concat!(
+35 | |                     "The \"wasm_js\" backend requires the `wasm_js` feature \
+36 | |                     for `getrandom`. For more information see: \
+37 | |                     https://docs.rs/getrandom/", env!("CARGO_PKG_VERSION"), "/#webassembly-support"
+38 | |                 ));
+   | |__________________^
+
+error[E0425]: cannot find function `fill_inner` in module `backends`
+  --> C:\Users\kokka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.3.3\src\lib.rs:99:19
+   |
+99 |         backends::fill_inner(dest)?;
+   |                   ^^^^^^^^^^ not found in `backends`
+
+error[E0425]: cannot find function `inner_u32` in module `backends`
+   --> C:\Users\kokka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.3.3\src\lib.rs:128:15
+    |
+128 |     backends::inner_u32()
+    |               ^^^^^^^^^ not found in `backends`
+    |
+help: consider importing this function
+    |
+ 33 + use crate::util::inner_u32;
+    |
+help: if you import `inner_u32`, refer to it directly
+    |
+128 -     backends::inner_u32()
+128 +     inner_u32()
+    |
+
+error[E0425]: cannot find function `inner_u64` in module `backends`
+   --> C:\Users\kokka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.3.3\src\lib.rs:142:15
+    |
+142 |     backends::inner_u64()
+    |               ^^^^^^^^^ not found in `backends`
+    |
+help: consider importing this function
+    |
+ 33 + use crate::util::inner_u64;
+    |
+help: if you import `inner_u64`, refer to it directly
+    |
+142 -     backends::inner_u64()
+142 +     inner_u64()
+    |
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `getrandom` (lib) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
