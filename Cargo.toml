@@ -73,7 +73,8 @@ wasm-bindgen-futures = "0.4.42"
 console_log = "1"
 log = "0.4"
 web-time = "1.1.0"
-web-sys = { version = "0.3.69" }
+web-sys = { version = "0.3.69", features = ["Window", "Document", "Element", "HtmlCanvasElement", "Performance"] }
+js-sys = "0.3"
 
 [profile.web-release]
 inherits = "release"

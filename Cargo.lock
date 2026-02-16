@@ -4181,6 +4181,7 @@ dependencies = [
  "half",
  "image",
  "indicatif",
+ "js-sys",
  "log",
  "npyz",
  "num-traits",

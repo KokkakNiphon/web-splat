@@ -1,21 +1,20 @@
-#[cfg(target_arch = "wasm32")]
-use web_time::Duration;
 use std::ops::RangeInclusive;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
+#[cfg(target_arch = "wasm32")]
+use web_time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::renderer::DEFAULT_KERNEL_SIZE;
-use crate::{SceneCamera, Split, WindowContext};
+use crate::{controller::ControlMode, SceneCamera, Split, WindowContext};
 use cgmath::{Euler, Matrix3, Quaternion};
 #[cfg(not(target_arch = "wasm32"))]
 use egui::Vec2b;
 
 #[cfg(target_arch = "wasm32")]
-use egui::{Align2,Vec2};
+use egui::{Align2, Vec2};
 
 use egui::{emath::Numeric, Color32, RichText};
-
 
 #[cfg(not(target_arch = "wasm32"))]
 use egui_plot::{Legend, PlotPoints};
@@ -41,7 +40,9 @@ pub(crate) fn ui(state: &mut WindowContext) -> bool {
             .num_visible_points(&state.wgpu_context.device, &state.wgpu_context.queue),
     );
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(target_arch = "wasm32")]
+    let num_drawn = 0;
+
     egui::Window::new("Render Stats")
         .default_width(200.)
         .default_height(100.)
@@ -51,44 +52,91 @@ pub(crate) fn ui(state: &mut WindowContext) -> bool {
                 ui.colored_label(egui::Color32::WHITE, "FPS");
                 ui.label(format!("{:}", state.fps as u32));
                 ui.end_row();
-                ui.colored_label(egui::Color32::WHITE, "Visible points");
-                ui.label(format!(
-                    "{:} ({:.2}%)",
-                    format_thousands(num_drawn),
-                    (num_drawn as f32 / state.pc.num_points() as f32) * 100.
-                ));
-            });
-            let history = state.history.to_vec();
-            let pre: Vec<f32> = history.iter().map(|v| v.0.as_secs_f32() * 1000.).collect();
-            let sort: Vec<f32> = history.iter().map(|v| v.1.as_secs_f32() * 1000.).collect();
-            let rast: Vec<f32> = history.iter().map(|v| v.2.as_secs_f32() * 1000.).collect();
 
-            ui.label("Frame times (ms):");
-            egui_plot::Plot::new("frame times")
-                .allow_drag(false)
-                .allow_boxed_zoom(false)
-                .allow_zoom(false)
-                .allow_scroll(false)
-                .y_axis_min_width(1.0)
-                .y_axis_label("ms")
-                .auto_bounds(Vec2b::TRUE)
-                .show_axes([false, true])
-                .legend(
-                    Legend::default()
-                        .text_style(TextStyle::Body)
-                        .background_alpha(1.)
-                        .position(egui_plot::Corner::LeftBottom),
-                )
-                .show(ui, |ui| {
-                    let line =
-                        egui_plot::Line::new("preprocess",PlotPoints::from_ys_f32(&pre));
-                    ui.line(line);
-                    let line = egui_plot::Line::new("sorting",PlotPoints::from_ys_f32(&sort));
-                    ui.line(line);
-                    let line =
-                        egui_plot::Line::new("rasterize",PlotPoints::from_ys_f32(&rast));
-                    ui.line(line);
-                });
+                ui.colored_label(egui::Color32::WHITE, "Frame Time");
+                if state.fps > 0.0 {
+                    ui.label(format!("{:.2} ms", 1000.0 / state.fps));
+                } else {
+                    ui.label("-");
+                }
+                ui.end_row();
+
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    ui.colored_label(egui::Color32::WHITE, "Visible points");
+                    ui.label(format!(
+                        "{:} ({:.2}%)",
+                        format_thousands(num_drawn),
+                        (num_drawn as f32 / state.pc.num_points() as f32) * 100.
+                    ));
+                    ui.end_row();
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    use winit::platform::web::WindowExtWebSys;
+                    if let Some(perf) = web_sys::window().and_then(|w| w.performance()) {
+                        // This is a non-standard API, mostly Chrome/Edge
+                        // We need to use js_sys::Reflect to access "memory" property if not exposing in web_sys types directly yet
+                        // Or checks if web_sys has `memory()` method on Performance.
+                        // Check `web_sys` docs or just try accessing via Reflect for safety.
+                        let mem: wasm_bindgen::JsValue =
+                            js_sys::Reflect::get(&perf, &"memory".into())
+                                .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                        if !mem.is_undefined() {
+                            let used = js_sys::Reflect::get(&mem, &"usedJSHeapSize".into())
+                                .unwrap_or(wasm_bindgen::JsValue::from_f64(0.0));
+                            if let Some(used_num) = used.as_f64() {
+                                ui.colored_label(egui::Color32::WHITE, "Mem (JS Heap)");
+                                ui.label(format!("{:.1} MB", used_num / 1024.0 / 1024.0));
+                                ui.end_row();
+                            }
+                        }
+                    }
+                }
+
+                ui.colored_label(egui::Color32::WHITE, "Backend");
+                ui.label(format!(
+                    "{:?}",
+                    state.wgpu_context.adapter.get_info().backend
+                ));
+                ui.end_row();
+            });
+
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let history = state.history.to_vec();
+                let pre: Vec<f32> = history.iter().map(|v| v.0.as_secs_f32() * 1000.).collect();
+                let sort: Vec<f32> = history.iter().map(|v| v.1.as_secs_f32() * 1000.).collect();
+                let rast: Vec<f32> = history.iter().map(|v| v.2.as_secs_f32() * 1000.).collect();
+
+                ui.label("Frame times (ms):");
+                egui_plot::Plot::new("frame times")
+                    .allow_drag(false)
+                    .allow_boxed_zoom(false)
+                    .allow_zoom(false)
+                    .allow_scroll(false)
+                    .y_axis_min_width(1.0)
+                    .y_axis_label("ms")
+                    .auto_bounds(Vec2b::TRUE)
+                    .show_axes([false, true])
+                    .legend(
+                        Legend::default()
+                            .text_style(TextStyle::Body)
+                            .background_alpha(1.)
+                            .position(egui_plot::Corner::LeftBottom),
+                    )
+                    .show(ui, |ui| {
+                        let line =
+                            egui_plot::Line::new("preprocess", PlotPoints::from_ys_f32(&pre));
+                        ui.line(line);
+                        let line = egui_plot::Line::new("sorting", PlotPoints::from_ys_f32(&sort));
+                        ui.line(line);
+                        let line =
+                            egui_plot::Line::new("rasterize", PlotPoints::from_ys_f32(&rast));
+                        ui.line(line);
+                    });
+            }
         });
 
     egui::Window::new("⚙ Render Settings").show(ctx, |ui| {
@@ -96,6 +144,23 @@ pub(crate) fn ui(state: &mut WindowContext) -> bool {
             .num_columns(2)
             .striped(true)
             .show(ui, |ui| {
+                ui.label("Control Mode");
+                egui::ComboBox::from_label("")
+                    .selected_text(format!("{:?}", state.controller.mode))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut state.controller.mode,
+                            ControlMode::Orbit,
+                            "Orbit",
+                        );
+                        ui.selectable_value(
+                            &mut state.controller.mode,
+                            ControlMode::Fly,
+                            "WASM (Fly)",
+                        );
+                    });
+                ui.end_row();
+
                 ui.label("Gaussian Scaling");
                 ui.add(
                     egui::DragValue::new(&mut state.splatting_args.gaussian_scaling)
@@ -115,10 +180,10 @@ pub(crate) fn ui(state: &mut WindowContext) -> bool {
                 ui.end_row();
                 ui.add(egui::Label::new("Background Color"));
                 let mut color = egui::Color32::from_rgba_premultiplied(
-                    (state.splatting_args.background_color.r*255.) as u8,
-                    (state.splatting_args.background_color.g*255.) as u8,
-                    (state.splatting_args.background_color.b*255.) as u8,
-                    (state.splatting_args.background_color.a*255.) as u8,
+                    (state.splatting_args.background_color.r * 255.) as u8,
+                    (state.splatting_args.background_color.g * 255.) as u8,
+                    (state.splatting_args.background_color.b * 255.) as u8,
+                    (state.splatting_args.background_color.a * 255.) as u8,
                 );
                 egui::color_picker::color_edit_button_srgba(
                     ui,
@@ -157,6 +222,13 @@ pub(crate) fn ui(state: &mut WindowContext) -> bool {
                     );
                     ui.end_row();
                 }
+
+                ui.end_row();
+                ui.strong("Debug");
+                ui.end_row();
+                ui.checkbox(&mut state.splatting_args.sort, "Sort");
+                ui.checkbox(&mut state.splatting_args.rasterize, "Rasterize");
+                ui.end_row();
             });
     });
 
@@ -333,7 +405,7 @@ pub(crate) fn ui(state: &mut WindowContext) -> bool {
                 .show(ui, |ui| {
                     ui.strong("Camera Controls");
                     ui.end_row();
-                    
+
                     // Desktop controls
                     ui.label("Rotate Camera");
                     ui.label("Left click + drag / Touch + drag");
@@ -353,7 +425,7 @@ pub(crate) fn ui(state: &mut WindowContext) -> bool {
 
                     ui.separator();
                     ui.end_row();
-                    
+
                     ui.strong("Mobile Touch Controls");
                     ui.end_row();
                     ui.label("Rotate");
@@ -365,7 +437,7 @@ pub(crate) fn ui(state: &mut WindowContext) -> bool {
                     ui.label("Zoom");
                     ui.label("Pinch to zoom");
                     ui.end_row();
-                    
+
                     ui.separator();
                     ui.end_row();
 

@@ -270,6 +270,8 @@ impl WindowContext {
                 scene_center: None,
                 scene_extend: None,
                 background_color: wgpu::Color::BLACK,
+                sort: true,
+                rasterize: true,
             },
             pc,
             // camera: view_camera,
@@ -354,6 +356,12 @@ impl WindowContext {
     /// returns whether the sceen changed and we need a redraw
     fn update(&mut self, dt: Duration)  {
         // ema fps update
+        let fps = 1.0 / dt.as_secs_f32();
+        if self.fps.is_nan() || self.fps.is_infinite() {
+            self.fps = fps;
+        } else {
+            self.fps = self.fps * 0.9 + fps * 0.1;
+        }
 
         if self.splatting_args.walltime < Duration::from_secs(5) {
             self.splatting_args.walltime += dt;
@@ -452,7 +460,7 @@ impl WindowContext {
         if let Some(stopwatch) = &mut self.stopwatch {
             stopwatch.start(&mut encoder, "rasterization").unwrap();
         }
-        if redraw_scene {
+        if redraw_scene && self.splatting_args.rasterize {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -823,10 +831,13 @@ pub async fn open_window<R: Read + Seek + Send + Sync + 'static>(
                 state.controller.process_touch(controller_touch);
             }
             WindowEvent::RedrawRequested => {
+                #[cfg(not(target_arch = "wasm32"))]
                 if !config.no_vsync{
                     // make sure the next redraw is called with a small delay
                     target.set_control_flow(ControlFlow::wait_duration(min_wait));
                 }
+                #[cfg(target_arch = "wasm32")]
+                target.set_control_flow(ControlFlow::Poll);
                 let now = Instant::now();
                 let dt = now-last;
                 last = now;
@@ -852,6 +863,11 @@ pub async fn open_window<R: Read + Seek + Send + Sync + 'static>(
                         Err(e) => println!("error: {:?}", e),
                     }
                 }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    state.window.request_redraw();
+                }
+                #[cfg(not(target_arch = "wasm32"))]
                 if config.no_vsync{
                     state.window.request_redraw();
                 }

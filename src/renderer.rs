@@ -429,16 +429,18 @@ impl GaussianRenderer {
             stopwatch.stop(encoder, "preprocess").unwrap();
         }
         // sort 2d splats
-        if let Some(stopwatch) = stopwatch {
-            stopwatch.start(encoder, "sorting").unwrap();
-        }
-        self.sorter.record_sort_indirect(
-            &self.sorter_suff.as_ref().unwrap().sorter_bg,
-            &self.sorter_suff.as_ref().unwrap().sorter_dis,
-            encoder,
-        );
-        if let Some(stopwatch) = stopwatch {
-            stopwatch.stop(encoder, "sorting").unwrap();
+        if render_settings.sort {
+            if let Some(stopwatch) = stopwatch {
+                stopwatch.start(encoder, "sorting").unwrap();
+            }
+            self.sorter.record_sort_indirect(
+                &self.sorter_suff.as_ref().unwrap().sorter_bg,
+                &self.sorter_suff.as_ref().unwrap().sorter_dis,
+                encoder,
+            );
+            if let Some(stopwatch) = stopwatch {
+                stopwatch.stop(encoder, "sorting").unwrap();
+            }
         }
 
         encoder.copy_buffer_to_buffer(
@@ -811,6 +813,8 @@ pub struct SplattingArgs {
     pub scene_center: Option<Point3<f32>>,
     pub scene_extend: Option<f32>,
     pub background_color: wgpu::Color,
+    pub sort: bool,
+    pub rasterize: bool,
 }
 
 pub const DEFAULT_KERNEL_SIZE: f32 = 0.3;
