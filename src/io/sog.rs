@@ -149,6 +149,21 @@ impl<'a> PointCloudReader for SogReader<'a> {
 
         // Load scales
         let scales_img = self.source.read_image(&meta.scales.files[0])?.to_rgb8();
+        let min_scale = meta
+            .scales
+            .codebook
+            .iter()
+            .fold(f32::INFINITY, |a, &b| a.min(b));
+        let max_scale = meta
+            .scales
+            .codebook
+            .iter()
+            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        log::info!(
+            "Scale codebook range: min = {}, max = {}",
+            min_scale,
+            max_scale
+        );
 
         // Load quats
         let quats_img = self.source.read_image(&meta.quats.files[0])?.to_rgba8();
@@ -199,9 +214,9 @@ impl<'a> PointCloudReader for SogReader<'a> {
 
             // --- Scales ---
             let s_pixel = scales_img.get_pixel(x_coord, y_coord);
-            let sx = meta.scales.codebook[s_pixel[0] as usize];
-            let sy = meta.scales.codebook[s_pixel[1] as usize];
-            let sz = meta.scales.codebook[s_pixel[2] as usize];
+            let sx = meta.scales.codebook[s_pixel[0] as usize].exp();
+            let sy = meta.scales.codebook[s_pixel[1] as usize].exp();
+            let sz = meta.scales.codebook[s_pixel[2] as usize].exp();
             let scale = Vector3::new(sx, sy, sz);
 
             // --- Quats ---
