@@ -47,6 +47,46 @@ cargo run --release --features npz --bin viewer point_cloud.npz cameras.json
       -V, --version   Print version
 </details>
 
+## Web
+
+### Build
+
+1. **Install `wasm-bindgen-cli`**:
+   Make sure to install the version that matches `Cargo.toml` (currently 0.2.106).
+   ```bash
+   cargo install wasm-bindgen-cli --version 0.2.106
+   ```
+
+2. **Build for WASM**:
+   **Linux/macOS (bash):**
+   ```bash
+   export RUSTFLAGS='--cfg getrandom_backend="wasm_js"'
+   cargo build --no-default-features --target wasm32-unknown-unknown --lib --features npz --profile web-release
+   ```
+
+   **Windows (PowerShell):**
+   ```powershell
+   $env:RUSTFLAGS='--cfg getrandom_backend="wasm_js"'
+   cargo build --no-default-features --target wasm32-unknown-unknown --lib --features npz --profile web-release
+   ```
+
+3. **Generate bindings**:
+   ```bash
+   wasm-bindgen --out-dir public --web target/wasm32-unknown-unknown/web-release/web_splats.wasm --no-typescript
+   ```
+
+### Run
+
+Serve the `public` directory:
+
+```bash
+python -m http.server 8080 --directory public
+# OR
+npx serve public
+```
+
+Open `http://localhost:8080/demo.html` in your browser.
+
 ## About
 
 **Splat Sorting**
