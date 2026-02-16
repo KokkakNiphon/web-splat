@@ -46,7 +46,13 @@ async fn main() {
         opt.scene = try_find_scene_file(&opt.input, 2);
         log::warn!("No scene file specified, using {:?}", opt.scene);
     }
-    let data_file = File::open(&opt.input).unwrap();
+
+    let input = if opt.input.is_dir() {
+        web_splats::io::InputSource::Path(opt.input.clone())
+    } else {
+        let data_file = File::open(&opt.input).unwrap();
+        web_splats::io::InputSource::File(data_file)
+    };
 
     let scene_file = opt.scene.as_ref().map(|p| File::open(p).unwrap());
 
@@ -55,7 +61,7 @@ async fn main() {
     }
 
     open_window(
-        data_file,
+        input,
         scene_file,
         RenderConfig {
             no_vsync: opt.no_vsync,

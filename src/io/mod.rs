@@ -1,6 +1,7 @@
 #[cfg(feature = "npz")]
 use std::io::BufReader;
 use std::io::{Read, Seek};
+use std::path::PathBuf;
 
 use bytemuck::Zeroable;
 use cgmath::{Array, EuclideanSpace, InnerSpace, Point3, Vector3};
@@ -12,16 +13,23 @@ use crate::pointcloud::{Aabb, Covariance3D, Gaussian, GaussianCompressed, Gaussi
 use self::npz::NpzReader;
 
 use self::ply::PlyReader;
+use self::sog::SogReader;
 
 #[cfg(feature = "npz")]
 pub mod npz;
 pub mod ply;
+pub mod sog;
 
 pub trait PointCloudReader {
     fn read(&mut self) -> Result<GenericGaussianPointCloud, anyhow::Error>;
 
     fn magic_bytes() -> &'static [u8];
     fn file_ending() -> &'static str;
+}
+
+pub enum InputSource<R: Read + Seek> {
+    File(R),
+    Path(PathBuf),
 }
 
 pub struct GenericGaussianPointCloud {
@@ -42,22 +50,73 @@ pub struct GenericGaussianPointCloud {
 }
 
 impl GenericGaussianPointCloud {
-    pub fn load<'a, R: Read + Seek>(f: R) -> Result<Self, anyhow::Error> {
-        let mut signature: [u8; 4] = [0; 4];
-        let mut f = f;
-        f.read_exact(&mut signature)?;
-        f.rewind()?;
-        if signature.starts_with(PlyReader::<R>::magic_bytes()) {
-            let mut ply_reader = PlyReader::new(f)?;
-            return ply_reader.read();
+    pub fn load<R: Read + Seek + Send + Sync>(
+        input: InputSource<R>,
+    ) -> Result<Self, anyhow::Error> {
+        match input {
+            InputSource::File(mut f) => {
+                let mut signature: [u8; 4] = [0; 4];
+                f.read_exact(&mut signature)?;
+                f.rewind()?;
+                if signature.starts_with(PlyReader::<R>::magic_bytes()) {
+                    let mut ply_reader = PlyReader::new(f)?;
+                    return ply_reader.read();
+                }
+                // Both SOG and NPZ are zip files.
+                // We check if it is a SOG file by looking for "meta.json"
+                if signature.starts_with(SogReader::magic_bytes()) {
+                    let is_sog = {
+                        let mut archive = zip::ZipArchive::new(&mut f);
+                        match archive {
+                            Ok(mut a) => a.by_name("meta.json").is_ok(),
+                            Err(_) => false,
+                        }
+                    };
+                    f.rewind()?;
+
+                    if is_sog {
+                        let mut sog_reader = SogReader::new_zip(f)?;
+                        return sog_reader.read();
+                    }
+
+                    #[cfg(feature = "npz")]
+                    {
+                        let mut reader = BufReader::new(f);
+                        let mut npz_reader = NpzReader::new(&mut reader)?;
+                        return npz_reader.read();
+                    }
+                }
+                return Err(anyhow::anyhow!("Unknown file format"));
+            }
+            InputSource::Path(path) => {
+                if path.is_dir() {
+                    let mut sog_reader = SogReader::new(path)?;
+                    return sog_reader.read();
+                } else {
+                    // Fallback to opening file
+                    let f = std::fs::File::open(path)?;
+                    // But R needs to be std::fs::File?
+                    // The generic R is defined by the caller.
+                    // If InputSource::Path is used, R is not really used in this branch.
+                    // However, to convert to InputSource::File(f), f must match R.
+                    // This only works if R = std::fs::File.
+                    // If R is something else, we cannot open a path into R.
+
+                    // Helper: recursion requires R to be File.
+                    // Since we can't ensure R is File, we can't recursively call load with File(f).
+                    // We should implement load for Path separately or require R to be inferred?
+
+                    // Solution: Just call load(InputSource::File(std::fs::File::open(path)?)) BUT
+                    // This requires R to be File.
+                    // If the caller calls load::<File>(Path(...)), it works.
+                    // If the caller calls load::<Cursor>(Path(...)), it fails to compile/run this branch?
+                    // Actually, we can just error if it's not a directory because SOG must be a directory.
+                    // If it's a file, the caller should have opened it or we update usage.
+
+                    return Err(anyhow::anyhow!("Only directory paths (SOG) are supported via InputSource::Path. For files, open them and use InputSource::File."));
+                }
+            }
         }
-        #[cfg(feature = "npz")]
-        if signature.starts_with(NpzReader::<R>::magic_bytes()) {
-            let mut reader = BufReader::new(f);
-            let mut npz_reader = NpzReader::new(&mut reader)?;
-            return npz_reader.read();
-        }
-        return Err(anyhow::anyhow!("Unknown file format"));
     }
 
     fn new(

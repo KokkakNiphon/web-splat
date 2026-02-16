@@ -1,0 +1,115 @@
+    Checking wasm-bindgen-cli v0.2.106
+warning: unused import: `wgpu::Backends`
+  --> src\lib.rs:12:5
+   |
+12 | use wgpu::Backends;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `f`
+  --> src\io\mod.rs:83:25
+   |
+83 |                     let f = std::fs::File::open(path)?;
+   |                         ^ help: if this is intentional, prefix it with an underscore: `_f`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `idx`
+   --> src\renderer.rs:292:27
+    |
+292 |             .filter_map(|(idx, g)| {
+    |                           ^^^ help: if this is intentional, prefix it with an underscore: `_idx`
+
+warning: unused variable: `bounds`
+   --> src\renderer.rs:299:21
+    |
+299 |                 let bounds = 1.2 * p_proj.w;
+    |                     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_bounds`
+
+warning: unused variable: `x`
+   --> src\renderer.rs:306:21
+    |
+306 |                 let x = pos2d.x * viewport_vec.x * 0.5 + viewport_vec.x * 0.5; // Screen space?
+    |                     ^ help: if this is intentional, prefix it with an underscore: `_x`
+
+warning: unused variable: `focal`
+   --> src\renderer.rs:261:13
+    |
+261 |         let focal = render_settings
+    |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_focal`
+
+warning: unused variable: `sh_deg`
+   --> src\renderer.rs:266:13
+    |
+266 |         let sh_deg = render_settings.max_sh_deg;
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_sh_deg`
+
+warning: unused variable: `w_mat`
+   --> src\renderer.rs:271:13
+    |
+271 |         let w_mat = Matrix4::from_cols(view.x, view.y, view.z, Vector4::new(0., 0., 0., 1.));
+    |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_w_mat`
+
+warning: unused variable: `w_rot_mat`
+   --> src\renderer.rs:272:13
+    |
+272 |         let w_rot_mat = Matrix4::new(
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_w_rot_mat`
+
+warning: unused variable: `sh_coefs`
+   --> src\renderer.rs:284:13
+    |
+284 |         let sh_coefs = pc.pc_data.sh_coefs_buffer();
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sh_coefs`
+
+warning: struct `MetaMinMax` is never constructed
+  --> src\io\sog.rs:15:8
+   |
+15 | struct MetaMinMax {
+   |        ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `count` is never read
+  --> src\io\sog.rs:47:5
+   |
+46 | struct MetaShN {
+   |        ------- field in this struct
+47 |     count: usize,
+   |     ^^^^^
+   |
+   = note: `MetaShN` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `version` and `antialias` are never read
+  --> src\io\sog.rs:55:5
+   |
+54 | struct Meta {
+   |        ---- fields in this struct
+55 |     version: u32,
+   |     ^^^^^^^
+56 |     count: usize,
+57 |     antialias: bool,
+   |     ^^^^^^^^^
+   |
+   = note: `Meta` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: unnecessary transmute
+   --> src\renderer.rs:340:42
+    |
+340 |                 let depth_key = unsafe { std::mem::transmute::<f32, u32>(p_hom.z) }; // View space Z
+    |                                          -------------------------------^^^^^^^^^
+    |                                          |
+    |                                          help: replace this with: `f32::to_bits`
+    |
+    = note: `#[warn(unnecessary_transmutes)]` on by default
+
+warning: `web_splats` (lib) generated 14 warnings (run `cargo fix --lib -p web_splats` to apply 11 suggestions)
+error[E0599]: no method named `keep` found for struct `TempDir` in the current scope
+   --> C:\Users\kokka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasm-bindgen-cli-0.2.106\src\wasm_bindgen_test_runner.rs:220:27
+    |
+220 |         let path = tmpdir.keep();
+    |                           ^^^^ private field, not a method
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `wasm-bindgen-cli` (lib) due to 1 previous error

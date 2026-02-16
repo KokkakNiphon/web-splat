@@ -175,7 +175,7 @@ async fn main() {
     let file = File::open(&opt.input).unwrap();
     let mut reader = std::io::BufReader::new(file);
 
-    let pc_raw = io::GenericGaussianPointCloud::load(&mut reader).unwrap();
+    let pc_raw = io::GenericGaussianPointCloud::load(io::InputSource::File(&mut reader)).unwrap();
     let pc = PointCloud::new(&device, pc_raw).unwrap();
 
     let mut renderer = GaussianRenderer::new(

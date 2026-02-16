@@ -158,9 +158,9 @@ pub struct WindowContext {
 
 impl WindowContext {
     // Creating some of the wgpu types requires async code
-    async fn new<R: Read + Seek>(
+    async fn new<R: Read + Seek + Send + Sync + 'static>(
         window: Window,
-        pc_file: R,
+        input: io::InputSource<R>,
         render_config: &RenderConfig,
     ) -> anyhow::Result<Self> {
         let mut size = window.inner_size();
@@ -211,7 +211,7 @@ impl WindowContext {
         };
         surface.configure(&device, &config);
 
-        let pc_raw = io::GenericGaussianPointCloud::load(pc_file)?;
+        let pc_raw = io::GenericGaussianPointCloud::load(input)?;
         let pc = PointCloud::new(&device, pc_raw)?;
         log::info!("loaded point cloud with {:} points", pc.num_points());
 
@@ -296,8 +296,13 @@ impl WindowContext {
     fn reload(&mut self) -> anyhow::Result<()> {
         if let Some(file_path) = &self.pointcloud_file_path {
             log::info!("reloading volume from {:?}", file_path);
-            let file = std::fs::File::open(file_path)?;
-            let pc_raw = io::GenericGaussianPointCloud::load(file)?;
+            let input = if file_path.is_dir() {
+                io::InputSource::Path(file_path.clone())
+            } else {
+                let file = std::fs::File::open(file_path)?;
+                io::InputSource::File(file)
+            };
+            let pc_raw = io::GenericGaussianPointCloud::load(input)?;
             self.pc = PointCloud::new(&self.wgpu_context.device, pc_raw)?;
         } else {
             return Err(anyhow::anyhow!("no pointcloud file path present"));
@@ -615,7 +620,7 @@ pub fn smoothstep(x: f32) -> f32 {
 }
 
 pub async fn open_window<R: Read + Seek + Send + Sync + 'static>(
-    file: R,
+    input: io::InputSource<R>,
     scene_file: Option<R>,
     config: RenderConfig,
     pointcloud_file_path: Option<PathBuf>,
@@ -689,7 +694,7 @@ pub async fn open_window<R: Read + Seek + Send + Sync + 'static>(
         })
         .unwrap_or(Duration::from_millis(17));
 
-    let mut state = WindowContext::new(window, file, &config).await.unwrap();
+    let mut state = WindowContext::new(window, input, &config).await.unwrap();
     state.pointcloud_file_path = pointcloud_file_path;
 
     if let Some(scene) = scene {
@@ -879,7 +884,7 @@ pub async fn run_wasm(
     let scene_reader = scene.map(|d: Vec<u8>| Cursor::new(d));
 
     wasm_bindgen_futures::spawn_local(open_window(
-        pc_reader,
+        crate::io::InputSource::File(pc_reader),
         scene_reader,
         RenderConfig {
             no_vsync: false,
